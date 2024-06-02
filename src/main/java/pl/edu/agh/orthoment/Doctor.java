@@ -136,8 +136,8 @@ public class Doctor {
                 logger.warn("Invalid command, requires 3 arguments");
                 continue;
             }
-            final String patientFullName = cargs[0] + " " + cargs[1],
-                         testType = cargs[2];
+            final String testType = cargs[0],
+                         patientFullName = cargs[1] + " " + cargs[2];
 
             final boolean isValidTestType = testType.equals("hip")
                 || testType.equals("knee")
