@@ -1,7 +1,7 @@
 package pl.edu.agh.orthoment;
 
 public class Configuration {
-    public static final String EXAMINATION_EXCHANGE = "Examination";
+    public static final String EXAMINATION_EXCHANGE = "MedicalExaminations";
     public static final String ADMINISTRATION_EXCHANGE = "Administration";
     public static final String ADMINISTRATION_KEY = "administration";
     public static final String DOCTOR_0_KEY = "doctor_0";
