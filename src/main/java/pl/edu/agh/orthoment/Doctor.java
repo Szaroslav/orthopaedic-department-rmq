@@ -15,6 +15,8 @@ import com.rabbitmq.client.DeliverCallback;
 
 
 public class Doctor {
+    private static final String NAME = "Doctor";
+    private static String messageName;
     private static Logger logger;
     private static int id;
 
@@ -23,11 +25,13 @@ public class Doctor {
     ) throws IOException, TimeoutException {
         // CLI arguments: id
         if (args.length < 1) {
-            throw new IllegalArgumentException("Technician requires 1 argument");
+            throw new IllegalArgumentException(NAME + " requires 1 argument");
         }
 
-        id = Integer.parseInt(args[0]);
-        logger = new Logger("Doctor " + id);
+        final int id = Integer.parseInt(args[0]);
+        messageName = Utility.toMessageName(NAME, id);
+
+        logger = new Logger(NAME + " " + id);
 
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost("localhost");
@@ -49,13 +53,15 @@ public class Doctor {
         }
     }
 
-    private static void initResponseHandler(Channel channel) throws IOException {
+    private static void initResponseHandler(
+        @NonNull Channel channel
+    ) throws IOException {
         String queueName = channel.queueDeclare()
             .getQueue();
         channel.queueBind(
             queueName,
             Configuration.EXAMINATION_EXCHANGE,
-            "doctor_" + id
+            messageName
         );
 
         DeliverCallback deliverCallback = (consumerTag, delivery) -> {
@@ -64,13 +70,14 @@ public class Doctor {
                 StandardCharsets.UTF_8
             );
             final String[] messageParts = message.split(":");
-            final String patient = messageParts[0],
-                         testType = messageParts[1];
+            final String testType = messageParts[0],
+                         sender = messageParts[1],
+                         body = messageParts[3];
 
             logger.logWithInput(String.format(
                 "Received response of %s request for patient %s",
                 testType,
-                patient
+                body
             ));
         };
 
@@ -83,8 +90,8 @@ public class Doctor {
     }
 
     private static void handleInput(
-        Scanner scanner,
-        Channel channel
+        @NonNull Scanner scanner,
+        @NonNull Channel channel
     ) throws IOException {
         while (true) {
             System.out.print(Logger.INPUT_MESSAGE + " ");
@@ -121,18 +128,22 @@ public class Doctor {
 
     private static void requestTest(
         @NonNull String fullName,
-        @NonNull String test,
+        @NonNull String testType,
         @NonNull Channel channel
     ) throws IOException {
+        byte[] message = Utility.buildMessage(
+            testType, messageName, null, fullName
+        );
+
         channel.basicPublish(
             Configuration.EXAMINATION_EXCHANGE,
-            test,
+            testType,
             null,
-            ("doctor_" + id + ":" + fullName).getBytes(StandardCharsets.UTF_8)
+            message
         );
         logger.log(String.format(
             "Requested %s test for %s",
-            test,
+            testType,
             fullName
         ));
     }
