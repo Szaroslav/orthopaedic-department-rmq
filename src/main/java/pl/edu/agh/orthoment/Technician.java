@@ -54,6 +54,8 @@ public class Technician {
             BuiltinExchangeType.DIRECT
         );
 
+        initInfoHandler(channel);
+
         for (String qualification : qualifications) {
             String queueName = bindQueue(qualification, channel);
             initRequestHandler(queueName, channel);
@@ -82,6 +84,42 @@ public class Technician {
         );
 
         return queueName;
+    }
+
+    private static void initInfoHandler(
+        @NonNull Channel channel
+    ) throws IOException {
+        String queueName = channel
+            .queueDeclare()
+            .getQueue();
+        channel.queueBind(
+            queueName,
+            Configuration.ADMINISTRATION_EXCHANGE,
+            messageName
+        );
+
+        DeliverCallback deliverCallback = (consumerTag, delivery) -> {
+            final String message = new String(
+                delivery.getBody(),
+                StandardCharsets.UTF_8
+            );
+            final String[] messageParts = message.split(":");
+            final String sender = messageParts[1],
+                         body = messageParts[3];
+
+            logger.log(String.format(
+                "Received info message from %s: %s",
+                Utility.toHumanName(sender),
+                body
+            ));
+        };
+
+        channel.basicConsume(
+            queueName,
+            true,
+            deliverCallback,
+            consumerTag -> {}
+        );
     }
 
     private static void initRequestHandler(
@@ -146,6 +184,12 @@ public class Technician {
         channel.basicPublish(
             Configuration.EXAMINATION_EXCHANGE,
             doctor,
+            null,
+            message
+        );
+        channel.basicPublish(
+            Configuration.ADMINISTRATION_EXCHANGE,
+            Configuration.ADMINISTRATION_KEY,
             null,
             message
         );

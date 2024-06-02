@@ -2,6 +2,9 @@ package pl.edu.agh.orthoment;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Scanner;
 import java.util.concurrent.TimeoutException;
 
@@ -14,8 +17,8 @@ import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DeliverCallback;
 
 
-public class Doctor {
-    private static final String NAME = "Doctor";
+public class Administrator {
+    private static final String NAME = "Administrator";
     private static String messageName;
     private static Logger logger;
 
@@ -41,7 +44,7 @@ public class Doctor {
         ) {
             channel.basicQos(1);
             channel.exchangeDeclare(
-                Configuration.EXAMINATION_EXCHANGE,
+                Configuration.ADMINISTRATION_EXCHANGE,
                 BuiltinExchangeType.DIRECT
             );
 
@@ -55,17 +58,17 @@ public class Doctor {
     private static void initResponseHandler(
         @NonNull Channel channel
     ) throws IOException {
-        String queueName = channel.queueDeclare()
-            .getQueue();
-        channel.queueBind(
-            queueName,
-            Configuration.EXAMINATION_EXCHANGE,
-            messageName
-        );
+        String queueName = channel.queueDeclare(
+            "Administration",
+            false,
+            false,
+            false,
+            null
+        ).getQueue();
         channel.queueBind(
             queueName,
             Configuration.ADMINISTRATION_EXCHANGE,
-            messageName
+            "administration"
         );
 
         DeliverCallback deliverCallback = (consumerTag, delivery) -> {
@@ -76,21 +79,30 @@ public class Doctor {
             final String[] messageParts = message.split(":");
             final String testType = messageParts[0],
                          sender = messageParts[1],
+                         receiver = messageParts[2],
                          body = messageParts[3];
 
             boolean unknownMessage = false;
             String messageLog = null;
-            if (sender.matches("technician_\\d+")) {
+            if (sender.matches("doctor_\\d+")) {
                 messageLog = String.format(
-                    "Received response of %s request for patient %s",
+                    "Received %s request " +
+                        "ordered by %s " +
+                        "for patient %s",
                     testType,
+                    Utility.toHumanName(sender),
                     body
                 );
             }
-            else if (sender.matches("administrator_\\d+")) {
+            else if (sender.matches("technician_\\d+")) {
                 messageLog = String.format(
-                    "Received info message from %s: %s",
+                    "Received processed %s request " +
+                        "from %s " +
+                        "ordered by %s " +
+                        "for patient %s",
+                    testType,
                     Utility.toHumanName(sender),
+                    Utility.toHumanName(receiver),
                     body
                 );
             }
@@ -105,6 +117,7 @@ public class Doctor {
             else {
                 logger.logWithInput(messageLog);
             }
+
         };
 
         channel.basicConsume(
@@ -132,52 +145,64 @@ public class Doctor {
             }
 
             String[] cargs = command.split(" ");
-            if (cargs.length < 3) {
-                logger.warn("Invalid command, requires 3 arguments");
+            if (cargs.length < 2) {
+                logger.warn("Invalid command, requires 2 arguments");
                 continue;
             }
-            final String patientFullName = cargs[0] + " " + cargs[1],
-                         testType = cargs[2];
+            final String receiver = cargs[0].toLowerCase();
+            final String message = String.join(
+                " ",
+                Arrays.copyOfRange(cargs, 1, cargs.length)
+            );
 
-            final boolean isValidTestType = testType.equals("hip")
-                || testType.equals("knee")
-                || testType.equals("elbow");
-            if (!isValidTestType) {
+            final boolean isValidReceiver = receiver.matches("doctor_\\d+")
+                || receiver.matches("technician_\\d+")
+                || receiver.equals("all");
+            if (!isValidReceiver) {
                 logger.warn(
-                    "Invalid type of test, needs to one of hip, knee, elbow");
+                    "Invalid receiver name (" + receiver + ")");
                 continue;
             }
 
-            requestTest(patientFullName, testType, channel);
+            info(message, receiver, channel);
         }
     }
 
-    private static void requestTest(
-        @NonNull String fullName,
-        @NonNull String testType,
+    private static void info(
+        @NonNull String messageBody,
+        @NonNull String receiver,
         @NonNull Channel channel
     ) throws IOException {
-        byte[] message = Utility.buildMessage(
-            testType, messageName, null, fullName
-        );
+        final List<String> receivers = new ArrayList<>();
+        if (receiver.equals("all")) {
+            receivers.add(Configuration.DOCTOR_0_KEY);
+            receivers.add(Configuration.DOCTOR_1_KEY);
+            receivers.add(Configuration.TECHNICIAN_0_KEY);
+            receivers.add(Configuration.TECHNICIAN_1_KEY);
+        }
+        else {
+            receivers.add(receiver);
+        }
 
-        channel.basicPublish(
-            Configuration.EXAMINATION_EXCHANGE,
-            testType,
-            null,
-            message
-        );
-        logger.log(String.format(
-            "Requested %s test for %s",
-            testType,
-            fullName
-        ));
+        for (String r : receivers) {
+            byte[] message = Utility.buildMessage(
+                null,
+                messageName,
+                r,
+                messageBody
+            );
+            channel.basicPublish(
+                Configuration.ADMINISTRATION_EXCHANGE,
+                r,
+                null,
+                message
+            );
 
-        channel.basicPublish(
-            Configuration.ADMINISTRATION_EXCHANGE,
-            Configuration.ADMINISTRATION_KEY,
-            null,
-            message
-        );
+            logger.log(String.format(
+                "Sent info to %s",
+                Utility.toHumanName(r)
+            ));
+        }
+
     }
 }
