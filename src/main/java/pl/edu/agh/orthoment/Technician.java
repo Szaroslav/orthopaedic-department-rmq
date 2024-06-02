@@ -1,8 +1,5 @@
 package pl.edu.agh.orthoment;
 
-import com.rabbitmq.client.*;
-import lombok.NonNull;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -10,30 +7,42 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
 
+import lombok.NonNull;
+
+import com.rabbitmq.client.BuiltinExchangeType;
+import com.rabbitmq.client.Channel;
+import com.rabbitmq.client.Connection;
+import com.rabbitmq.client.ConnectionFactory;
+import com.rabbitmq.client.DeliverCallback;
+
+
 public class Technician {
-    private static Logger logger;
+    private static final String NAME = "Technician";
+    private static String messageName;
     private static final List<String> qualifications = new ArrayList<>();
+    private static Logger logger;
 
     public static void main(
         String[] args
     ) throws IOException, TimeoutException {
         // CLI arguments: id test_0 [test_1, …]
         if (args.length < 2) {
-            throw new IllegalArgumentException("Technician requires 2 arguments");
+            throw new IllegalArgumentException(NAME + " requires 2 arguments");
         }
 
         final int id = Integer.parseInt(args[0]);
+        messageName = Utility.toMessageName(NAME, id);
         for (int i = 1; i < args.length; i++) {
             final String arg = args[i];
-            final boolean isValidTest = arg.equals("hip")
+            final boolean isValidTestType = arg.equals("hip")
                 || arg.equals("knee")
                 || arg.equals("elbow");
-            if (isValidTest) {
+            if (isValidTestType) {
                 qualifications.add(arg);
             }
         }
 
-        logger = new Logger("Technician " + id);
+        logger = new Logger(NAME + " " + id);
 
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost("localhost");
@@ -47,22 +56,25 @@ public class Technician {
 
         for (String qualification : qualifications) {
             String queueName = bindQueue(qualification, channel);
-            initRequestHandler(qualification, queueName, channel);
+            initRequestHandler(queueName, channel);
         }
+
+        logger.log(
+            "Listening test requests: " + String.join(", ", qualifications)
+        );
     }
-    
+
     private static String bindQueue(
         @NonNull String routingKey,
         @NonNull Channel channel
     ) throws IOException {
         String queueName = channel.queueDeclare(
-            routingKey.substring(0, 1).toUpperCase() +
-                routingKey.substring(1).toLowerCase(),
-            false,
-            false,
-            false,
-            null
-        ).getQueue();
+                Utility.capitalizeFirst(routingKey),
+                false,
+                false,
+                false,
+                null)
+            .getQueue();
         channel.queueBind(
             queueName,
             Configuration.EXAMINATION_EXCHANGE,
@@ -73,7 +85,6 @@ public class Technician {
     }
 
     private static void initRequestHandler(
-        @NonNull String qualification,
         @NonNull String queueName,
         @NonNull Channel channel
     ) throws IOException {
@@ -83,12 +94,13 @@ public class Technician {
                 StandardCharsets.UTF_8
             );
             final String[] messageParts = message.split(":");
-            final String doctor = messageParts[0],
-                         patientFullName = messageParts[1];
+            final String testType = messageParts[0],
+                         doctor = messageParts[1],
+                         patientFullName = messageParts[3];
 
             logger.log(String.format(
                 "Received %s request for %s",
-                qualification,
+                testType,
                 patientFullName
             ));
 
@@ -98,19 +110,14 @@ public class Technician {
                     .nextInt(2000, 5001);
                 Thread.sleep(sleepMsecs);
 
-                channel.basicPublish(
-                    Configuration.EXAMINATION_EXCHANGE,
-                    doctor,
-                    null,
-                    (patientFullName + ":" + qualification).getBytes()
-                );
+                sendTestResults(testType, doctor, patientFullName, channel);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
 
             logger.log(String.format(
                 "Processed %s request for %s",
-                qualification,
+                testType,
                 patientFullName
             ));
         };
@@ -120,6 +127,27 @@ public class Technician {
             true,
             deliverCallback,
             consumerTag -> {}
+        );
+    }
+
+    private static void sendTestResults(
+        @NonNull String testType,
+        @NonNull String doctor,
+        @NonNull String patientFullName,
+        @NonNull Channel channel
+    ) throws IOException {
+        byte[] message = Utility.buildMessage(
+            testType,
+            messageName,
+            doctor,
+            patientFullName
+        );
+
+        channel.basicPublish(
+            Configuration.EXAMINATION_EXCHANGE,
+            doctor,
+            null,
+            message
         );
     }
 }
