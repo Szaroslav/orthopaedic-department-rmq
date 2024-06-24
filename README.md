@@ -4,4 +4,4 @@ Communication between doctors, technicians and administrators of orthopaedic dep
 
 ## Application schema
 
-![Orthopaedic Department schema](https://raw.githubusercontent.com/Szaroslav/orthopaedic-department-rmq/schema/schema/orthopaedic-department.svg)
+![Orthopaedic Department schema](https://raw.githubusercontent.com/Szaroslav/orthopaedic-department-rmq/main/schema/orthopaedic-department.svg)
